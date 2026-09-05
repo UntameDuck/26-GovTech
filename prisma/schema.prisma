@@ -1,0 +1,301 @@
+// AUREUM 도메인 모델
+//
+// 설계 원칙 (docs/PRODUCT_PLAN.md 및 AUREUM 아키텍처 문서 02 기준):
+//  - 특정 기관명에 종속되지 않도록 Group / Organization 으로 일반화한다.
+//      Group        = 교육청 등 상위 기관
+//      Organization = 학교 (사이트의 실제 소유·운영 주체)
+//  - 모든 tenant-scoped 데이터는 organizationId 또는 siteId 를 가진다.
+//    조회는 반드시 src/lib/tenant.ts 의 TenantContext 를 거친다.
+//  - Page 는 draftLayout / publishedLayout 을 분리한다.
+//    "학교 사이트 Publish" 는 publishedLayout 갱신이고,
+//    "AUREUM 애플리케이션 Deploy" 와는 다른 개념이다.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7 부터 접속 URL 은 스키마가 아니라 prisma.config.ts 와
+// PrismaClient 의 driver adapter 에서 다룬다.
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------- 조직 / 사용자
+
+enum GroupRole {
+  GROUP_ADMIN
+  GROUP_VIEWER
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  EDITOR
+  APPROVER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String?
+  // OWNER / ADMIN / GROUP_ADMIN 은 MFA 필수를 목표로 한다 (아키텍처 문서 03).
+  mfaEnabled   Boolean  @default(false)
+  mfaSecret    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  groupMemberships GroupMembership[]
+  orgMemberships   OrganizationMembership[]
+  auditLogs        AuditLog[]
+  authoredPosts    Post[]                   @relation("PostAuthor")
+}
+
+/// 교육청 등 상위 기관. 소속 Organization 을 조회·관리할 수 있다.
+model Group {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  region    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizations Organization[]
+  memberships   GroupMembership[]
+}
+
+/// 학교. 사이트의 실제 소유·운영 주체.
+model Organization {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  /// 초등학교 / 중학교 / 고등학교 / 기타 공공기관 등
+  kind      String   @default("SCHOOL")
+  groupId   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  group       Group?                   @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  sites       Site[]
+  memberships OrganizationMembership[]
+  assets      Asset[]
+  auditLogs   AuditLog[]
+
+  @@index([groupId])
+}
+
+model GroupMembership {
+  id        String    @id @default(cuid())
+  userId    String
+  groupId   String
+  role      GroupRole
+  createdAt DateTime  @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+  @@index([groupId])
+}
+
+model OrganizationMembership {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  role           OrgRole
+  createdAt      DateTime @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------- 사이트 / 페이지
+
+model Site {
+  id             String   @id @default(cuid())
+  organizationId String
+  slug           String   @unique
+  name           String
+  /// Public Renderer 가 Host 헤더로 사이트를 찾는 키. 미배정이면 null.
+  domain         String?  @unique
+  /// 사이트 전역 설정 (로고, 대표 연락처, 승인된 테마 변형 등).
+  /// 자유 CSS/JS 는 담지 않는다.
+  settings       Json     @default("{}")
+  published      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pages        Page[]
+  boards       Board[]
+  assets       Asset[]
+  auditLogs    AuditLog[]
+
+  @@index([organizationId])
+}
+
+enum PageStatus {
+  DRAFT
+  REVIEW_REQUESTED
+  APPROVED
+  PUBLISHED
+}
+
+model Page {
+  id     String @id @default(cuid())
+  siteId String
+  /// 사이트 내 경로. 홈페이지는 빈 문자열로 둔다.
+  slug   String
+  title  String
+
+  status PageStatus @default(DRAFT)
+
+  /// 편집 중인 Block 배열 (Page JSON).
+  /// src/lib/page-json.ts 의 Zod 스키마로 검증한다.
+  draftLayout     Json  @default("[]")
+  /// 공개 사이트가 실제로 렌더링하는 Block 배열. Publish 시에만 갱신된다.
+  publishedLayout Json?
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  site      Site           @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  revisions PageRevision[]
+
+  @@unique([siteId, slug])
+  @@index([siteId])
+}
+
+/// Publish 시점의 불변 스냅샷. rollback 근거가 된다.
+model PageRevision {
+  id        String   @id @default(cuid())
+  pageId    String
+  /// 페이지별 순번 (1부터).
+  revision  Int
+  layout    Json
+  note      String?
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  page Page @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@unique([pageId, revision])
+  @@index([pageId])
+}
+
+// ---------------------------------------------------------------- 게시판 / 콘텐츠
+
+/// 게시판. NoticeBoard 블록은 boardId 와 표시 설정만 참조하고
+/// 게시물 자체를 소유하지 않는다 (표현과 콘텐츠 분리).
+model Board {
+  id     String @id @default(cuid())
+  siteId String
+  slug   String
+  name   String
+  /// NOTICE / PARENT_LETTER / GALLERY / MEAL 등 게시판 종류
+  kind   String @default("NOTICE")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  site  Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  posts Post[]
+
+  @@unique([siteId, slug])
+  @@index([siteId])
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+  HIDDEN
+}
+
+model Post {
+  id      String @id @default(cuid())
+  boardId String
+  /// Board 를 거치지 않는 조회에서도 테넌트 경계를 강제하기 위해 비정규화해 둔다.
+  siteId  String
+
+  title       String
+  /// 본문. 임의 HTML 이 아니라 제한된 서식만 허용한다.
+  body        String
+  status      PostStatus @default(DRAFT)
+  pinned      Boolean    @default(false)
+  authorId    String?
+  publishedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  board       Board   @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  author      User?   @relation("PostAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  attachments Asset[]
+
+  @@index([boardId, status, publishedAt])
+  @@index([siteId])
+}
+
+enum AssetScanStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Asset {
+  id             String  @id @default(cuid())
+  organizationId String
+  siteId         String?
+  postId         String?
+
+  /// 사용자에게 보여줄 원본 파일명.
+  filename   String
+  /// 실제 저장 키. 원본 파일명을 쓰지 않는다 (아키텍처 문서 03).
+  storageKey String          @unique
+  mimeType   String
+  byteSize   Int
+  scanStatus AssetScanStatus @default(PENDING)
+  scanNote   String?
+
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  site         Site?        @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  post         Post?        @relation(fields: [postId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([siteId])
+  @@index([postId])
+}
+
+// ---------------------------------------------------------------- 감사로그
+
+/// 아키텍처 문서 03 의 최소 기록 대상을 담는다. 내부 보관 목표는 2년.
+model AuditLog {
+  id             String  @id @default(cuid())
+  actorId        String?
+  organizationId String?
+  siteId         String?
+
+  /// LOGIN_SUCCESS / PAGE_PUBLISH / POST_DELETE 등
+  action    String
+  /// "Page:clx..." 형태의 대상 식별자
+  resource  String?
+  result    String   @default("SUCCESS")
+  ip        String?
+  userAgent String?
+  /// 액션별 부가 정보. 개인정보를 담지 않는다.
+  detail    Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  actor        User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  site         Site?         @relation(fields: [siteId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([siteId, createdAt])
+  @@index([action, createdAt])
+}

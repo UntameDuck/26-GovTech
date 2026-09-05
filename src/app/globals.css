@@ -1,26 +1,71 @@
 @import "tailwindcss";
+@import "../krds/theme.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * Pretendard GOV — KRDS 가 지정한 본문 서체.
+ * krds-uiux 패키지에 들어 있는 subset woff2 를 public/fonts 로 복사해 쓴다.
+ * (복사 명령은 README 의 "KRDS 리소스" 항목 참고)
+ */
+@font-face {
+  font-family: "Pretendard GOV";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url("/fonts/PretendardGOV-Regular.subset.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Pretendard GOV";
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url("/fonts/PretendardGOV-Medium.subset.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Pretendard GOV";
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url("/fonts/PretendardGOV-Bold.subset.woff2") format("woff2");
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans:
+    "Pretendard GOV", -apple-system, BlinkMacSystemFont, system-ui, Roboto,
+    "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR",
+    "Malgun Gothic", sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/*
+ * KRDS 는 1rem = 10px 을 전제로 토큰 치수를 정의한다
+ * (primitive.number.6 = "1rem" 이 실제로는 10px).
+ * 그래서 루트 글꼴 크기를 62.5% 로 맞춘 뒤 body 에서 본문 크기를 되돌린다.
+ */
+html {
+  font-size: 62.5%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  font-size: 1.6rem;
+  line-height: 1.6;
+  background: var(--color-surface);
+  color: var(--color-basic);
+  -webkit-text-size-adjust: 100%;
+}
+
+/*
+ * 공개 학교 홈페이지는 사용자의 시스템 다크모드를 임의로 따라가지 않는다.
+ * 밝기/대비 전환은 KRDS 고대비 모드(data-krds-contrast="high")로만 제공한다.
+ * 공공 사이트에서 예고 없이 색이 뒤집히는 것을 막기 위한 결정이다.
+ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

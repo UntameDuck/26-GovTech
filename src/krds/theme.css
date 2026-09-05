@@ -1,0 +1,72 @@
+/*
+ * KRDS 토큰과 Tailwind 사이의 다리.
+ *
+ * tokens.generated.css 는 KRDS 원본을 그대로 옮긴 것이라 이름이 많고 깁니다.
+ * 여기서는 블록을 만들 때 실제로 쓰는 것만 골라 Tailwind 유틸리티로 노출합니다.
+ *
+ *   bg-surface        → var(--krds-surface-white)
+ *   text-basic        → var(--krds-text-basic)
+ *   border-line       → var(--krds-border-gray-light)
+ *
+ * 여기 없는 값이 필요하면 tokens.generated.css 의 변수를 arbitrary value 로
+ * 직접 쓰세요.  예: text-[var(--krds-text-danger)]
+ *
+ * 규칙: 이 파일에 하드코딩된 색상값(#rrggbb)을 넣지 않습니다.
+ *       모든 값은 KRDS 토큰을 가리켜야 합니다.
+ */
+
+@import "./tokens.generated.css";
+
+@theme inline {
+  /* 면 */
+  --color-surface: var(--krds-surface-white);
+  --color-surface-subtle: var(--krds-surface-gray-subtler);
+  --color-surface-muted: var(--krds-surface-gray-subtle);
+  --color-surface-primary: var(--krds-surface-primary-subtler);
+  --color-surface-inverse: var(--krds-surface-inverse);
+
+  /* 글자 */
+  --color-basic: var(--krds-text-basic);
+  --color-bolder: var(--krds-text-bolder);
+  --color-subtle: var(--krds-text-subtle);
+  --color-brand: var(--krds-text-primary);
+  --color-danger: var(--krds-text-danger);
+  --color-on-disabled: var(--krds-text-disabled);
+
+  /* 선 */
+  --color-line: var(--krds-border-gray-light);
+  --color-line-strong: var(--krds-border-gray);
+  --color-line-brand: var(--krds-divider-primary);
+
+  /* 반경 */
+  --radius-krds-sm: var(--krds-radius-small1);
+  --radius-krds-md: var(--krds-radius-medium1);
+  --radius-krds-lg: var(--krds-radius-large1);
+}
+
+/*
+ * 고대비 모드.
+ * <html data-krds-contrast="high"> 를 붙이면 tokens.generated.css 의
+ * [data-krds-contrast="high"] 블록이 같은 변수 이름을 덮어쓴다.
+ * 위 @theme 별칭이 var() 를 가리키고 있어서 유틸리티 클래스는 그대로 두면 된다.
+ */
+
+/* 키보드 초점은 절대 지우지 않는다 (KWCAG 2.2). */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: var(--krds-border-width-static-medium, 0.2rem) solid
+    var(--krds-border-primary, currentColor);
+  outline-offset: 0.2rem;
+}
+
+/* 화면에는 안 보이지만 스크린리더는 읽는 텍스트. */
+.sr-only-krds {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

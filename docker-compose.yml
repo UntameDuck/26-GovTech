@@ -1,0 +1,23 @@
+# 로컬 개발용 의존 서비스.
+# 운영(OCI A1 / K-PaaS)에서는 infra/k8s 매니페스트를 사용한다.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: aureum-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aureum
+      POSTGRES_PASSWORD: aureum_local_dev
+      POSTGRES_DB: aureum
+    ports:
+      - "5433:5432"
+    volumes:
+      - aureum-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aureum -d aureum"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  aureum-pgdata:

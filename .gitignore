@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# .env.example 은 커밋한다 (실제 값이 아니라 필요한 키의 목록).
+!.env.example

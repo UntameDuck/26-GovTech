@@ -1,36 +1,110 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AUREUM
 
-## Getting Started
+학교가 직접 사이트를 운영하되, 프레임워크·런타임·보안 패치·접근성·배포 운영은
+중앙 플랫폼이 지속적으로 책임지는 공공 웹사이트 구축·운영 플랫폼.
 
-First, run the development server:
+- 제품 계획: [docs/PRODUCT_PLAN.md](docs/PRODUCT_PLAN.md)
+
+## 지금까지 구현된 것
+
+MVP 1~3단계의 골격에 해당합니다.
+
+| 영역 | 상태 |
+|---|---|
+| 도메인 모델 (Group / Organization / Site / Page / Board / Post / Asset / AuditLog) | Prisma 스키마 작성 완료 |
+| 테넌트 경계 (`src/lib/tenant.ts`) | 조회 헬퍼 구현 |
+| Page JSON 검증 (`src/lib/page-json.ts`) | 저장/렌더 경로 분리 구현 |
+| Block Registry (`src/blocks/registry.ts`) | 블록 6종 등록 |
+| KRDS 토큰 → CSS 변수 | 자동 변환 스크립트 구현 (고대비 모드 포함) |
+| 드래그앤드롭 빌더 UI | **미구현** |
+| 인증 / RBAC | **미구현** |
+| 공개 사이트 라우팅 | **미구현** |
+
+## 개발 환경 준비
+
+필요한 것: Node.js 20 이상, Docker Desktop.
 
 ```bash
+npm install
+cp .env.example .env
+npm run db:up          # PostgreSQL 컨테이너 기동 (Docker Desktop 실행 중이어야 함)
+npm run db:push        # 스키마를 DB에 반영
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 주요 명령
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| 명령 | 설명 |
+|---|---|
+| `npm run dev` | 개발 서버 |
+| `npm run build` | 프로덕션 빌드 |
+| `npm run typecheck` | 타입 검사 |
+| `npm run krds:tokens` | KRDS 토큰을 CSS 변수로 다시 생성 |
+| `npm run db:up` / `db:down` | 로컬 PostgreSQL 기동 / 정지 |
+| `npm run db:push` | 스키마를 DB에 반영 (마이그레이션 파일 없이) |
+| `npm run db:studio` | Prisma Studio |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 구조에서 꼭 지켜야 하는 것
 
-## Learn More
+### 1. 블록 컴포넌트는 편집기와 공개 사이트에서 같은 코드다
 
-To learn more about Next.js, take a look at the following resources:
+`src/blocks/*/index.tsx` 의 컴포넌트에는 편집 전용 코드를 넣지 않습니다.
+선택 하이라이트나 드래그 핸들은 전부 바깥 래퍼가 담당합니다.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+편집기에서 본 화면과 실제 학교 홈페이지가 다르면 제품 신뢰가 무너지기 때문에,
+이 규칙이 깨지면 다른 어떤 기능도 의미가 없습니다.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+그래서 블록 컴포넌트에는 다음 제약이 걸립니다.
 
-## Deploy on Vercel
+- `"use client"` / `"use server"` 를 붙이지 않습니다.
+- 데이터를 직접 가져오지 않습니다. `loader` 가 만들어 `data` prop 으로 넘깁니다.
+- 상태를 갖지 않습니다. `props` 와 `data` 만으로 결정되어야 합니다.
+- 날짜 포맷 같은 로케일 의존 연산은 `loader`(서버)에서 끝냅니다.
+  컴포넌트에는 완성된 문자열만 넘깁니다.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 2. 테넌트 경계는 함수 시그니처로 강제한다
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`findPage(pageId)` 같은 함수는 만들지 않습니다.
+tenant-scoped 데이터를 읽는 함수는 `TenantContext` 를 첫 인자로 받습니다
+(`src/lib/tenant.ts`).
+
+### 3. 레지스트리에 없는 블록은 존재하지 않는다
+
+임의 HTML/CSS/JavaScript/플러그인을 허용하지 않는다는 원칙은
+`src/blocks/registry.ts` 하나로 구현됩니다.
+여기 없는 `type` 은 저장되지도, 렌더링되지도 않습니다.
+
+### 4. 공개 페이지는 블록 하나 때문에 죽지 않는다
+
+- **저장할 때**는 하나라도 어긋나면 전부 거부합니다.
+- **렌더할 때**는 문제가 있는 블록만 건너뛰고 나머지를 그립니다.
+
+이미 공개된 학교 홈페이지가 스키마 변경 때문에 통째로 500이 되는 상황을 막기 위한 것입니다.
+건너뛴 블록은 `issues` 로 반환되므로 호출부에서 반드시 기록해야 합니다.
+
+## KRDS 리소스
+
+디자인 값은 KRDS 공식 패키지에서 가져오고, 손으로 옮겨 적지 않습니다.
+
+```bash
+npm run krds:tokens    # node_modules/krds-uiux/tokens → src/krds/tokens.generated.css
+```
+
+생성된 `src/krds/tokens.generated.css` 는 커밋합니다.
+KRDS 를 업데이트했을 때 어떤 값이 바뀌었는지 diff 로 확인할 수 있어야 하기 때문입니다.
+
+본문 서체(Pretendard GOV)는 패키지에서 `public/fonts` 로 복사해 사용합니다.
+
+```bash
+cp node_modules/krds-uiux/resources/fonts/*.woff2 public/fonts/
+```
+
+> **확인 필요**: `krds-uiux` 의 `package.json` 은 라이선스를 `ISC` 로 적고 있으나
+> README 는 "KRDS 이용약관을 따름"이라고 명시합니다. 외부 배포 전에 정리해야 합니다.
+
+## 배포 방향
+
+- 목표 환경: Oracle Cloud `VM.Standard.A1.Flex` (ARM64) + K-PaaS 단일 클러스터
+- 무료 티어 한도는 2 OCPU / 12GB 이므로, **컨테이너 이미지 빌드는 서버에서 하지 않습니다.**
+  GitHub Actions 에서 multi-arch 빌드 후 GHCR 에 올리고 서버는 pull 만 합니다.
+- 같은 이유로 Redis/BullMQ 는 MVP 범위에서 제외합니다.
