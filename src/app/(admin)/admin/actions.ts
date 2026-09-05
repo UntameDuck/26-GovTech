@@ -1,9 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { signOut } from "@/auth";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getDevAdminContext } from "@/lib/dev-admin";
+import {
+  requireAdminSession,
+  requireCapability,
+  NotAuthenticatedError,
+  NotAuthorizedError,
+  type AdminSession,
+} from "@/lib/session";
+import { recordAudit } from "@/lib/audit";
 import {
   findEditablePage,
   createBlockDataSource,
@@ -56,7 +64,7 @@ export async function loadPreviewData(
   layout: unknown,
 ): Promise<ActionResult<Record<string, unknown>>> {
   try {
-    const ctx = await getDevAdminContext();
+    const ctx = await requireAdminSession();
     const { blocks } = resolveLayoutForRender(layout);
     const source = createBlockDataSource(ctx);
 
@@ -87,7 +95,7 @@ export async function saveDraft(
   layout: unknown,
 ): Promise<ActionResult<{ savedAt: string }>> {
   try {
-    const ctx = await getDevAdminContext();
+    const ctx = await requireCapability("EDIT_CONTENT");
     await findEditablePage(ctx, pageId); // 테넌트 경계 확인
 
     const validated = parseLayoutForSave(layout);
@@ -119,7 +127,7 @@ export async function publishPage(
   layout: unknown,
 ): Promise<ActionResult<{ publishedAt: string; revision: number }>> {
   try {
-    const ctx = await getDevAdminContext();
+    const ctx = await requireCapability("PUBLISH_PAGE");
     const page = await findEditablePage(ctx, pageId);
 
     const validated = parseLayoutForSave(layout);
@@ -176,30 +184,81 @@ export async function publishPage(
 // ---------------------------------------------------------------- 내부
 
 async function writeAudit(
-  ctx: { userId: string; organizationId: string; siteId?: string },
+  session: AdminSession,
   action: string,
   pageId: string,
   detail: Record<string, unknown>,
 ) {
-  await prisma.auditLog.create({
-    data: {
-      // dev 스텁 사용자는 User 레코드가 없으므로 actorId 는 비워 둔다.
-      actorId: null,
-      organizationId: ctx.organizationId,
-      siteId: ctx.siteId ?? null,
-      action,
-      resource: `Page:${pageId}`,
-      detail: { ...detail, actor: ctx.userId },
-    },
+  await recordAudit({
+    action,
+    actorId: session.userId,
+    organizationId: session.organizationId,
+    siteId: session.siteId ?? null,
+    resource: `Page:${pageId}`,
+    detail: { ...detail, role: session.role },
   });
 }
 
 function toMessage(error: unknown): string {
   if (error instanceof InvalidLayoutError) return error.message;
+  if (error instanceof NotAuthenticatedError) {
+    return "로그인이 만료되었습니다. 다시 로그인해 주세요.";
+  }
+  if (error instanceof NotAuthorizedError) {
+    // 어떤 권한이 없는지는 알려 준다. 학교 담당자가 관리자에게 요청할 수
+    // 있어야 하기 때문이다. 자원의 존재 여부와 달리 숨길 이유가 없다.
+    return "이 작업을 수행할 권한이 없습니다. 승인 권한이 있는 담당자에게 요청하세요.";
+  }
   if (error instanceof TenantBoundaryError) {
     // 경계 밖 자원은 존재 자체를 알리지 않는다.
     return "페이지를 찾을 수 없습니다.";
   }
   if (error instanceof Error) return error.message;
   return "알 수 없는 오류가 발생했습니다.";
+}
+
+/**
+ * 승인 요청.
+ *
+ * 공개 권한이 없는 편집자(EDITOR)가 쓰는 경로다.
+ * 초안을 저장하고 상태를 REVIEW_REQUESTED 로 바꾼다.
+ * 문서 05 의 4단계 "Review/Approval 최소 흐름"에 해당한다.
+ *
+ * 승인권자에게 알림을 보내는 것은 아직 하지 않는다. 알림 채널(메일/문자)은
+ * 학교마다 사정이 달라 정하기 전에 만들면 버릴 가능성이 크다.
+ */
+export async function requestReview(
+  pageId: string,
+  layout: unknown,
+): Promise<ActionResult<{ status: string }>> {
+  try {
+    const ctx = await requireCapability("EDIT_CONTENT");
+    await findEditablePage(ctx, pageId);
+
+    const validated = parseLayoutForSave(layout);
+
+    await prisma.page.update({
+      where: { id: pageId },
+      data: { draftLayout: toJson(validated), status: "REVIEW_REQUESTED" },
+    });
+
+    await writeAudit(ctx, "PAGE_REVIEW_REQUESTED", pageId, {
+      blockCount: validated.length,
+    });
+
+    return { ok: true, data: { status: "REVIEW_REQUESTED" } };
+  } catch (error) {
+    return { ok: false, error: toMessage(error) };
+  }
+}
+
+/**
+ * 로그아웃.
+ *
+ * Auth.js 의 /api/auth/signout 엔드포인트는 CSRF 토큰이 담긴 폼 POST 를 요구한다.
+ * 토큰 없이 그냥 폼을 만들면 요청이 조용히 무시되고 세션이 남는다(실제로 그랬다).
+ * 서버 액션에서 signOut 을 호출하면 Auth.js 가 토큰 처리까지 맡는다.
+ */
+export async function signOutAction(): Promise<void> {
+  await signOut({ redirectTo: "/login" });
 }

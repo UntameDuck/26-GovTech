@@ -28,7 +28,13 @@ import { blockLibrary, getBlockDefinition } from "@/blocks/registry";
 import type { SiteSummary } from "@/blocks/types";
 import { createBlockInstance, type BlockInstance } from "@/lib/page-json";
 import { SettingsPanel, type BoardOption } from "@/components/builder/settings-panel";
-import { loadPreviewData, saveDraft, publishPage } from "@/app/(admin)/admin/actions";
+import {
+  loadPreviewData,
+  saveDraft,
+  publishPage,
+  requestReview,
+  signOutAction,
+} from "@/app/(admin)/admin/actions";
 
 /**
  * 드래그앤드롭 페이지 빌더.
@@ -48,6 +54,16 @@ type Props = {
   initialLayout: BlockInstance[];
   site: SiteSummary;
   boards: BoardOption[];
+  /** 화면에 표시할 접속자 정보. */
+  viewer: { name: string; role: string };
+  /**
+   * 공개 권한 보유 여부.
+   *
+   * 이 값으로 버튼을 감추는 것은 편의일 뿐 보안 장치가 아니다.
+   * 실제 차단은 서버 액션의 requireCapability 가 한다.
+   * 클라이언트에서 감추기만 하면 액션을 직접 호출하는 요청을 막지 못한다.
+   */
+  canPublish: boolean;
 };
 
 type SaveState =
@@ -62,6 +78,8 @@ export function Builder({
   initialLayout,
   site,
   boards,
+  viewer,
+  canPublish,
 }: Props) {
   const [blocks, setBlocks] = useState<BlockInstance[]>(initialLayout);
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -183,6 +201,18 @@ export function Builder({
     });
   }
 
+  function handleRequestReview() {
+    startTransition(async () => {
+      setSaveState({ kind: "working", label: "승인 요청 중" });
+      const result = await requestReview(pageId, blocks);
+      setSaveState(
+        result.ok
+          ? { kind: "done", label: "승인을 요청했습니다" }
+          : { kind: "error", message: result.error },
+      );
+    });
+  }
+
   const selected = blocks.find((block) => block.id === selectedId) ?? null;
   const selectedDefinition = selected ? getBlockDefinition(selected.type) : null;
 
@@ -201,10 +231,13 @@ export function Builder({
         <TopBar
           pageTitle={pageTitle}
           siteName={site.name}
+          viewer={viewer}
+          canPublish={canPublish}
           saveState={saveState}
           busy={isPending}
           onSave={handleSave}
           onPublish={handlePublish}
+          onRequestReview={handleRequestReview}
         />
 
         <div className="flex min-h-0 flex-1">
@@ -256,20 +289,33 @@ export function Builder({
 
 // ---------------------------------------------------------------- 상단 바
 
+const ROLE_LABEL: Record<string, string> = {
+  OWNER: "최고관리자",
+  ADMIN: "관리자",
+  APPROVER: "승인자",
+  EDITOR: "편집자",
+};
+
 function TopBar({
   pageTitle,
   siteName,
+  viewer,
+  canPublish,
   saveState,
   busy,
   onSave,
   onPublish,
+  onRequestReview,
 }: {
   pageTitle: string;
   siteName: string;
+  viewer: { name: string; role: string };
+  canPublish: boolean;
   saveState: SaveState;
   busy: boolean;
   onSave: () => void;
   onPublish: () => void;
+  onRequestReview: () => void;
 }) {
   return (
     <header className="flex shrink-0 items-center justify-between gap-4 border-b border-line bg-surface px-5 py-3">
@@ -279,6 +325,20 @@ function TopBar({
       </div>
 
       <div className="flex items-center gap-3">
+        <p className="text-[1.3rem] text-subtle">
+          {viewer.name}
+          <span className="ml-1 rounded-krds-sm bg-surface-subtle px-2 py-1 text-[1.2rem]">
+            {ROLE_LABEL[viewer.role] ?? viewer.role}
+          </span>
+        </p>
+        <form action={signOutAction}>
+          <button
+            type="submit"
+            className="text-[1.3rem] text-subtle underline underline-offset-4"
+          >
+            로그아웃
+          </button>
+        </form>
         {/* 저장 결과는 스크린리더에도 전달되어야 한다. */}
         <p
           role="status"
@@ -305,14 +365,30 @@ function TopBar({
         >
           임시저장
         </button>
-        <button
-          type="button"
-          onClick={onPublish}
-          disabled={busy}
-          className="rounded-krds-sm bg-[var(--krds-action-secondary-active)] px-4 py-2 text-[1.4rem] font-bold text-[var(--krds-text-disabled-on)] disabled:opacity-50"
-        >
-          공개하기
-        </button>
+        {/*
+          공개 권한이 없는 편집자에게는 "공개하기" 대신 "승인 요청"을 보여준다.
+          누를 수 없는 단추를 띄워 두고 눌렀을 때 거절하는 것보다,
+          할 수 있는 일을 제시하는 편이 낫다.
+        */}
+        {canPublish ? (
+          <button
+            type="button"
+            onClick={onPublish}
+            disabled={busy}
+            className="rounded-krds-sm bg-[var(--krds-action-secondary-active)] px-4 py-2 text-[1.4rem] font-bold text-[var(--krds-text-disabled-on)] disabled:opacity-50"
+          >
+            공개하기
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onRequestReview}
+            disabled={busy}
+            className="rounded-krds-sm bg-[var(--krds-action-secondary-active)] px-4 py-2 text-[1.4rem] font-bold text-[var(--krds-text-disabled-on)] disabled:opacity-50"
+          >
+            승인 요청
+          </button>
+        )}
       </div>
     </header>
   );

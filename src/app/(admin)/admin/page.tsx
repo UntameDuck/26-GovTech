@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getDevAdminContext } from "@/lib/dev-admin";
+import { requireAdminSession, can } from "@/lib/session";
 import { findSite } from "@/lib/tenant";
 import { pageLayoutSchema } from "@/lib/page-json";
 import { Builder } from "@/components/builder/builder";
@@ -17,7 +17,7 @@ import { Builder } from "@/components/builder/builder";
 export const dynamic = "force-dynamic";
 
 export default async function AdminBuilderPage() {
-  const ctx = await getDevAdminContext();
+  const ctx = await requireAdminSession();
   const site = await findSite(ctx);
 
   const page = await prisma.page.findFirst({
@@ -48,6 +48,8 @@ export default async function AdminBuilderPage() {
         organizationName: site.organization.name,
       }}
       boards={boards}
+      viewer={{ name: ctx.name, role: ctx.role }}
+      canPublish={can(ctx, "PUBLISH_PAGE")}
     />
   );
 }

@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type OrgRole } from "@prisma/client";
+import { hashPassword } from "../src/lib/password";
 
 /**
  * 개발용 시드 데이터.
@@ -64,6 +65,54 @@ async function main() {
       settings: {},
     },
   });
+
+  // ---------------------------------------------------------------- 계정
+
+  /*
+   * 개발용 계정. 역할별로 하나씩 만들어 권한 차이를 바로 확인할 수 있게 한다.
+   *
+   * 비밀번호는 개발 편의를 위해 고정값이며, 이 시드는 운영에서 실행하지 않는다.
+   * 실제 학교 계정은 초대 흐름으로 만든다(추후 구현).
+   */
+  const DEV_PASSWORD = "aureum-dev-1234";
+
+  const accounts: Array<{ email: string; name: string; role: OrgRole }> = [
+    { email: "owner@example.com", name: "김소유", role: "OWNER" },
+    { email: "approver@example.com", name: "박승인", role: "APPROVER" },
+    { email: "editor@example.com", name: "이편집", role: "EDITOR" },
+  ];
+
+  for (const account of accounts) {
+    // 계정마다 따로 해싱한다. 한 번 만든 해시를 돌려쓰면 salt 가 공유되어,
+    // 같은 비밀번호를 쓰는 계정들이 DB 에서 한눈에 드러난다.
+    // 개발용 시드라도 이런 패턴은 그대로 운영 코드로 복사되기 쉽다.
+    const passwordHash = await hashPassword(DEV_PASSWORD);
+
+    const user = await prisma.user.upsert({
+      where: { email: account.email },
+      update: { name: account.name, passwordHash },
+      create: {
+        email: account.email,
+        name: account.name,
+        passwordHash,
+      },
+    });
+
+    await prisma.organizationMembership.upsert({
+      where: {
+        userId_organizationId: {
+          userId: user.id,
+          organizationId: organization.id,
+        },
+      },
+      update: { role: account.role },
+      create: {
+        userId: user.id,
+        organizationId: organization.id,
+        role: account.role,
+      },
+    });
+  }
 
   // ---------------------------------------------------------------- 게시판
 
@@ -278,6 +327,11 @@ async function main() {
   console.log(`  게시판  ${boardSpecs.length}개`);
   console.log(`  게시물  ${postCount}개`);
   console.log(`  홈페이지 블록 ${homeLayout.length}개`);
+  console.log("");
+  console.log(`  개발용 계정 (비밀번호는 모두 ${DEV_PASSWORD})`);
+  for (const account of accounts) {
+    console.log(`    ${account.role.padEnd(9)} ${account.email}`);
+  }
 }
 
 main()

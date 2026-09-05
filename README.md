@@ -7,7 +7,7 @@
 
 ## 지금까지 구현된 것
 
-MVP 1~3단계의 골격에 해당합니다.
+MVP 1~5단계 일부에 해당합니다. 노션 문서 05 의 단계 구분을 따릅니다.
 
 | 영역 | 상태 |
 |---|---|
@@ -16,9 +16,13 @@ MVP 1~3단계의 골격에 해당합니다.
 | Page JSON 검증 (`src/lib/page-json.ts`) | 저장/렌더 경로 분리 구현 |
 | Block Registry (`src/blocks/registry.ts`) | 블록 6종 등록 |
 | KRDS 토큰 → CSS 변수 | 자동 변환 스크립트 구현 (고대비 모드 포함) |
-| 드래그앤드롭 빌더 UI | **미구현** |
-| 인증 / RBAC | **미구현** |
-| 공개 사이트 라우팅 | **미구현** |
+| 드래그앤드롭 빌더 UI | 블록 추가·삭제·순서 변경·설정 편집 |
+| 공개 사이트 라우팅 | Host 기반 + 게시판 목록/상세 |
+| 인증 / RBAC | Auth.js v5 + 역할별 권한 (MFA는 P1로 보류) |
+| 승인 흐름 | 편집자 승인 요청 → 승인자 공개 |
+| 보안 헤더 | CSP(nonce) + HSTS + Referrer/Permissions Policy |
+| 게시판 콘텐츠 편집 화면 | **미구현** |
+| 파일 업로드 | **미구현** |
 
 ## 개발 환경 준비
 
@@ -29,8 +33,25 @@ npm install
 cp .env.example .env
 npm run db:up          # PostgreSQL 컨테이너 기동 (Docker Desktop 실행 중이어야 함)
 npm run db:push        # 스키마를 DB에 반영
+npm run db:seed        # 예시 학교 + 개발용 계정 생성
 npm run dev
 ```
+
+`.env` 에는 `AUTH_SECRET` 이 반드시 있어야 합니다. 없으면 로그인이 실패합니다.
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+### 개발용 계정
+
+시드가 만드는 계정입니다. 비밀번호는 모두 `aureum-dev-1234` 입니다.
+
+| 계정 | 역할 | 할 수 있는 일 |
+|---|---|---|
+| owner@example.com | OWNER | 전부 |
+| approver@example.com | APPROVER | 편집 + 공개 |
+| editor@example.com | EDITOR | 편집만. 공개는 승인 요청으로 |
 
 ## 주요 명령
 
@@ -108,3 +129,8 @@ cp node_modules/krds-uiux/resources/fonts/*.woff2 public/fonts/
 - 무료 티어 한도는 2 OCPU / 12GB 이므로, **컨테이너 이미지 빌드는 서버에서 하지 않습니다.**
   GitHub Actions 에서 multi-arch 빌드 후 GHCR 에 올리고 서버는 pull 만 합니다.
 - 같은 이유로 Redis/BullMQ 는 MVP 범위에서 제외합니다.
+- **Ingress 뒤에 배포할 때 주의**: Auth.js 는 production 빌드에서 Host 를 신뢰하지
+  않으면 로그인이 `UntrustedHost` 로 실패합니다. 개발 모드에서는 자동 통과하므로
+  배포 후에야 드러납니다. `src/auth.config.ts` 의 `trustHost: true` 가 이를 해결하며,
+  대신 Ingress 에 명시적인 host 규칙을 두어 임의 Host 를 걸러야 합니다.
+  가능하면 `AUTH_URL` 을 실제 공개 주소로 고정하세요.
