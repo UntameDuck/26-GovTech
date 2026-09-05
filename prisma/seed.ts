@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { randomBytes } from "node:crypto";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, type OrgRole } from "@prisma/client";
 import { hashPassword } from "../src/lib/password";
@@ -70,11 +71,15 @@ async function main() {
 
   /*
    * 개발용 계정. 역할별로 하나씩 만들어 권한 차이를 바로 확인할 수 있게 한다.
-   *
-   * 비밀번호는 개발 편의를 위해 고정값이며, 이 시드는 운영에서 실행하지 않는다.
    * 실제 학교 계정은 초대 흐름으로 만든다(추후 구현).
+   *
+   * 비밀번호는 저장소에 두지 않는다.
+   * SEED_PASSWORD 를 주면 그 값을 쓰고, 없으면 매번 새로 만들어 출력한다.
+   * 코드에 기본값을 박아 두면 결국 그것이 어딘가의 실제 비밀번호가 된다.
    */
-  const DEV_PASSWORD = "aureum-dev-1234";
+  const generated = !process.env.SEED_PASSWORD;
+  const DEV_PASSWORD =
+    process.env.SEED_PASSWORD ?? randomBytes(9).toString("base64url");
 
   const accounts: Array<{ email: string; name: string; role: OrgRole }> = [
     { email: "owner@example.com", name: "김소유", role: "OWNER" },
@@ -329,6 +334,9 @@ async function main() {
   console.log(`  홈페이지 블록 ${homeLayout.length}개`);
   console.log("");
   console.log(`  개발용 계정 (비밀번호는 모두 ${DEV_PASSWORD})`);
+  if (generated) {
+    console.log("  ↑ 이번에 생성한 임시 비밀번호입니다. 고정하려면 .env 에 SEED_PASSWORD 를 설정하세요.");
+  }
   for (const account of accounts) {
     console.log(`    ${account.role.padEnd(9)} ${account.email}`);
   }
