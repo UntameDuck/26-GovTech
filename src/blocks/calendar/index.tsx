@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { defineBlock, type BlockRenderProps } from "@/blocks/types";
-import { findBoardPosts } from "@/lib/tenant";
 import { formatMonthDay, formatWeekday, toDateTimeAttribute } from "@/lib/format";
 
 /**
@@ -101,10 +100,9 @@ export const calendarBlock = defineBlock<Props, Data>({
     { kind: "board", name: "boardSlug", label: "학사일정 게시판" },
     { kind: "number", name: "count", label: "표시 개수", min: 1, max: 10 },
   ],
-  loader: async ({ props, ctx }) => {
+  loader: async ({ props, source }) => {
     // "다가오는" 일정이므로 오늘 이후만, 가까운 순서로 가져온다.
-    const posts = await findBoardPosts(
-      ctx,
+    const posts = await source.boardPosts(
       props.boardSlug,
       props.count,
       "upcoming",

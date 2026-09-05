@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import type { BlockDataSource } from "@/blocks/types";
 
 /**
  * 테넌트 경계.
@@ -237,6 +238,79 @@ export async function findBoardPosts(
   });
 }
 
+/** 게시판 자체. 목록 페이지의 제목과 존재 확인에 쓴다. */
+export async function findBoard(ctx: TenantContext, boardSlug: string) {
+  const siteId = ctx.siteId;
+  if (!siteId) throw new TenantBoundaryError("Board:(사이트 미지정)");
+
+  return prisma.board.findFirst({
+    where: { siteId, slug: boardSlug },
+    select: { id: true, slug: true, name: true, kind: true },
+  });
+}
+
+/** 게시판 목록 페이지. 페이지 번호는 1부터. */
+export async function findBoardPostsPage(
+  ctx: TenantContext,
+  boardSlug: string,
+  page: number,
+  perPage: number,
+) {
+  const siteId = ctx.siteId;
+  if (!siteId) throw new TenantBoundaryError("Board:(사이트 미지정)");
+
+  const where = {
+    siteId,
+    status: "PUBLISHED" as const,
+    publishedAt: { lte: new Date() },
+    board: { siteId, slug: boardSlug },
+  };
+
+  const [total, posts] = await Promise.all([
+    prisma.post.count({ where }),
+    prisma.post.findMany({
+      where,
+      orderBy: [{ pinned: "desc" }, { publishedAt: "desc" }],
+      skip: (Math.max(page, 1) - 1) * perPage,
+      take: perPage,
+      select: { id: true, title: true, pinned: true, publishedAt: true },
+    }),
+  ]);
+
+  return { total, posts, page: Math.max(page, 1), perPage };
+}
+
+/** 게시물 상세. 게시판 slug 까지 함께 확인해 다른 게시판의 글이 열리지 않게 한다. */
+export async function findPost(
+  ctx: TenantContext,
+  boardSlug: string,
+  postId: string,
+) {
+  const siteId = ctx.siteId;
+  if (!siteId) throw new TenantBoundaryError("Post:(사이트 미지정)");
+
+  return prisma.post.findFirst({
+    where: {
+      id: postId,
+      siteId,
+      status: "PUBLISHED",
+      publishedAt: { lte: new Date() },
+      board: { siteId, slug: boardSlug },
+    },
+    select: {
+      id: true,
+      title: true,
+      body: true,
+      publishedAt: true,
+      board: { select: { slug: true, name: true } },
+      attachments: {
+        where: { scanStatus: "APPROVED" },
+        select: { id: true, filename: true, byteSize: true, mimeType: true },
+      },
+    },
+  });
+}
+
 /**
  * 사진 게시판용. 게시물마다 승인된 이미지 첨부 1장을 함께 가져온다.
  * 스캔을 통과하지 않은(APPROVED 가 아닌) 첨부는 공개 사이트에 절대 노출하지 않는다.
@@ -270,4 +344,40 @@ export async function findGalleryItems(
       },
     },
   });
+}
+
+// ---------------------------------------------------------------- 블록 데이터 접근
+
+/**
+ * 블록 loader 에 넘길 데이터 접근 객체를 만든다.
+ *
+ * 테넌트 컨텍스트를 여기서 닫아 버리기 때문에, 블록은 siteId 를 알 수 없고
+ * 다른 학교의 데이터를 요청할 방법 자체가 없다.
+ * 블록이 서버 모듈을 import 하지 않게 하려는 목적도 함께 달성한다.
+ */
+export function createBlockDataSource(ctx: TenantContext): BlockDataSource {
+  return {
+    async boardPosts(boardSlug, limit, window = "released") {
+      const posts = await findBoardPosts(ctx, boardSlug, limit, window);
+      return posts.map((post) => ({
+        id: post.id,
+        title: post.title,
+        pinned: post.pinned,
+        publishedAt: post.publishedAt,
+      }));
+    },
+
+    async galleryItems(boardSlug, limit) {
+      const posts = await findGalleryItems(ctx, boardSlug, limit);
+      return posts.map((post) => {
+        const image = post.attachments[0];
+        return {
+          id: post.id,
+          title: post.title,
+          publishedAt: post.publishedAt,
+          image: image ? { id: image.id, filename: image.filename } : null,
+        };
+      });
+    },
+  };
 }

@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { defineBlock, type BlockRenderProps } from "@/blocks/types";
-import { findBoardPosts } from "@/lib/tenant";
 import { formatMonthDay, formatWeekday, toDateTimeAttribute } from "@/lib/format";
 
 /**
@@ -117,10 +116,9 @@ export const mealBlock = defineBlock<Props, Data>({
       max: 7,
     },
   ],
-  loader: async ({ props, ctx }) => {
+  loader: async ({ props, source }) => {
     // 오늘 급식은 오전에도 보여야 하므로 "오늘 24시까지"로 잡는다.
-    const posts = await findBoardPosts(
-      ctx,
+    const posts = await source.boardPosts(
       props.boardSlug,
       props.days,
       "throughToday",

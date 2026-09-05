@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { SiteSummary, BlockRenderMode } from "@/blocks/types";
-import type { TenantContext } from "@/lib/tenant";
+import { createBlockDataSource, type TenantContext } from "@/lib/tenant";
 import { resolveLayoutForRender, type LayoutIssue } from "@/lib/page-json";
 
 /**
@@ -29,6 +29,10 @@ export async function renderLayout(args: {
   const { blocks, skipped } = resolveLayoutForRender(layout);
   const issues: LayoutIssue[] = [...skipped];
 
+  // 테넌트 컨텍스트를 여기서 닫아 블록에 넘긴다.
+  // 블록은 자기 사이트 밖의 데이터를 요청할 방법이 없다.
+  const source = createBlockDataSource(ctx);
+
   // loader 를 순차가 아니라 동시에 돌린다.
   // 블록이 6개면 순차 실행은 그대로 6배 느려지고, 그 차이가 학교 홈페이지
   // 첫 화면 응답 시간에 그대로 드러난다.
@@ -38,7 +42,7 @@ export async function renderLayout(args: {
       if (!definition.loader) return definition.emptyData;
 
       try {
-        return await definition.loader({ props, ctx });
+        return await definition.loader({ props, source });
       } catch (error) {
         // 게시판 하나를 못 읽었다고 학교 홈페이지 전체가 죽으면 안 된다.
         // 해당 블록만 빈 상태로 그리고 문제를 기록한다.

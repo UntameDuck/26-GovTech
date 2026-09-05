@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { defineBlock, type BlockRenderProps } from "@/blocks/types";
-import { findGalleryItems } from "@/lib/tenant";
 import { formatDate, toDateTimeAttribute } from "@/lib/format";
 
 /**
@@ -129,23 +128,20 @@ export const galleryBlock = defineBlock<Props, Data>({
       ],
     },
   ],
-  loader: async ({ props, ctx }) => {
-    const posts = await findGalleryItems(ctx, props.boardSlug, props.count);
+  loader: async ({ props, source }) => {
+    const posts = await source.galleryItems(props.boardSlug, props.count);
 
     return {
-      items: posts.map((post) => {
-        const image = post.attachments[0];
-        return {
-          id: post.id,
-          title: post.title,
-          href: `/${props.boardSlug}/${post.id}`,
-          // 실제 파일 서빙 경로. 저장 키를 그대로 노출하지 않고 라우트를 거친다.
-          imageUrl: image ? `/api/assets/${image.id}` : null,
-          alt: post.title,
-          dateLabel: formatDate(post.publishedAt),
-          dateTime: toDateTimeAttribute(post.publishedAt),
-        };
-      }),
+      items: posts.map((post) => ({
+        id: post.id,
+        title: post.title,
+        href: `/${props.boardSlug}/${post.id}`,
+        // 실제 파일 서빙 경로. 저장 키를 그대로 노출하지 않고 라우트를 거친다.
+        imageUrl: post.image ? `/api/assets/${post.image.id}` : null,
+        alt: post.title,
+        dateLabel: formatDate(post.publishedAt),
+        dateTime: toDateTimeAttribute(post.publishedAt),
+      })),
       moreHref: `/${props.boardSlug}`,
     };
   },

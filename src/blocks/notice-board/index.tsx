@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { defineBlock, type BlockRenderProps } from "@/blocks/types";
-import { findBoardPosts } from "@/lib/tenant";
 import { formatDate, toDateTimeAttribute } from "@/lib/format";
 
 /**
@@ -127,8 +126,8 @@ export const noticeBoardBlock = defineBlock<Props, Data>({
     { kind: "boolean", name: "showDate", label: "작성일 표시" },
     { kind: "boolean", name: "showMoreLink", label: "더보기 링크 표시" },
   ],
-  loader: async ({ props, ctx }) => {
-    const posts = await findBoardPosts(ctx, props.boardSlug, props.count);
+  loader: async ({ props, source }) => {
+    const posts = await source.boardPosts(props.boardSlug, props.count);
 
     return {
       items: posts.map((post) => ({
