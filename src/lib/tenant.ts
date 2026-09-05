@@ -381,3 +381,96 @@ export function createBlockDataSource(ctx: TenantContext): BlockDataSource {
     },
   };
 }
+
+// ---------------------------------------------------------------- 관리자 조회
+//
+// 공개용 조회와 분리한다. 공개용은 PUBLISHED + 발행 시각이 지난 것만 보지만,
+// 관리자는 초안과 예약 발행까지 봐야 한다.
+// 한 함수에 플래그를 넣어 겸용하면, 언젠가 플래그가 잘못 넘어가 초안이
+// 공개 사이트에 노출된다. 함수를 아예 나눠 두는 편이 안전하다.
+
+/** 관리자 화면의 게시판 목록. 각 게시판의 글 수를 함께 센다. */
+export async function findAdminBoards(ctx: AdminContext) {
+  const siteId = ctx.siteId;
+  if (!siteId) throw new TenantBoundaryError("Board:(사이트 미지정)");
+
+  return prisma.board.findMany({
+    where: { siteId, site: { organizationId: ctx.organizationId } },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      kind: true,
+      _count: { select: { posts: true } },
+    },
+  });
+}
+
+/** 관리자 화면의 게시물 목록. 초안과 숨김도 포함한다. */
+export async function findAdminPosts(ctx: AdminContext, boardSlug: string) {
+  const siteId = ctx.siteId;
+  if (!siteId) throw new TenantBoundaryError("Board:(사이트 미지정)");
+
+  const board = await prisma.board.findFirst({
+    where: { siteId, slug: boardSlug, site: { organizationId: ctx.organizationId } },
+    select: { id: true, slug: true, name: true, kind: true },
+  });
+  if (!board) throw new TenantBoundaryError(`Board:${boardSlug}`);
+
+  const posts = await prisma.post.findMany({
+    where: { boardId: board.id, siteId },
+    orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
+    take: 100,
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      pinned: true,
+      publishedAt: true,
+      updatedAt: true,
+      author: { select: { name: true } },
+    },
+  });
+
+  return { board, posts };
+}
+
+/** 관리자 화면의 게시물 하나. 편집 폼이 사용한다. */
+export async function findAdminPost(ctx: AdminContext, postId: string) {
+  const siteId = ctx.siteId;
+  if (!siteId) throw new TenantBoundaryError("Post:(사이트 미지정)");
+
+  const post = await prisma.post.findFirst({
+    where: {
+      id: postId,
+      siteId,
+      board: { site: { organizationId: ctx.organizationId } },
+    },
+    select: {
+      id: true,
+      title: true,
+      body: true,
+      status: true,
+      pinned: true,
+      publishedAt: true,
+      board: { select: { id: true, slug: true, name: true } },
+    },
+  });
+
+  if (!post) throw new TenantBoundaryError(`Post:${postId}`);
+  return post;
+}
+
+/** 게시물을 만들거나 옮길 때 대상 게시판이 이 사이트의 것인지 확인한다. */
+export async function requireBoard(ctx: AdminContext, boardSlug: string) {
+  const siteId = ctx.siteId;
+  if (!siteId) throw new TenantBoundaryError("Board:(사이트 미지정)");
+
+  const board = await prisma.board.findFirst({
+    where: { siteId, slug: boardSlug, site: { organizationId: ctx.organizationId } },
+    select: { id: true, slug: true, name: true },
+  });
+  if (!board) throw new TenantBoundaryError(`Board:${boardSlug}`);
+  return { ...board, siteId };
+}

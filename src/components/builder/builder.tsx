@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import {
   DndContext,
   DragOverlay,
@@ -331,6 +332,12 @@ function TopBar({
             {ROLE_LABEL[viewer.role] ?? viewer.role}
           </span>
         </p>
+        <Link
+          href="/admin/boards"
+          className="text-[1.3rem] text-brand underline underline-offset-4"
+        >
+          게시판 관리
+        </Link>
         <form action={signOutAction}>
           <button
             type="submit"

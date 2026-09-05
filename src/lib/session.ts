@@ -30,8 +30,17 @@ export type Capability =
   | "MANAGE_POLICY"
   /** 페이지 초안과 게시물을 수정할 수 있다. 공개 권한은 포함하지 않는다. */
   | "EDIT_CONTENT"
-  /** 초안을 공개 사이트에 반영할 수 있다. */
-  | "PUBLISH_PAGE";
+  /** 페이지 구성(홈페이지 레이아웃)을 공개 사이트에 반영할 수 있다. */
+  | "PUBLISH_PAGE"
+  /**
+   * 게시물을 공개할 수 있다.
+   *
+   * PUBLISH_PAGE 와 나눠 둔 이유: 지금은 같은 역할에 함께 주지만, 두 행위의
+   * 무게가 다르다. 공지 하나를 올리는 것은 일상 업무이고 홈페이지 구성을
+   * 바꾸는 것은 그렇지 않다. 학교에 따라 "교사는 공지를 바로 올리되 홈 구성은
+   * 못 바꾼다"가 자연스러울 수 있어, 나중에 갈라질 수 있도록 미리 분리했다.
+   */
+  | "PUBLISH_POST";
 
 /**
  * 역할 → 권한 표.
@@ -48,9 +57,17 @@ const ROLE_CAPABILITIES: Record<OrgRole, ReadonlyArray<Capability>> = {
     "MANAGE_POLICY",
     "EDIT_CONTENT",
     "PUBLISH_PAGE",
+    "PUBLISH_POST",
   ],
-  ADMIN: ["VIEW_SITE", "VIEW_SCAN", "MANAGE_SITE", "EDIT_CONTENT", "PUBLISH_PAGE"],
-  APPROVER: ["VIEW_SITE", "EDIT_CONTENT", "PUBLISH_PAGE"],
+  ADMIN: [
+    "VIEW_SITE",
+    "VIEW_SCAN",
+    "MANAGE_SITE",
+    "EDIT_CONTENT",
+    "PUBLISH_PAGE",
+    "PUBLISH_POST",
+  ],
+  APPROVER: ["VIEW_SITE", "EDIT_CONTENT", "PUBLISH_PAGE", "PUBLISH_POST"],
   EDITOR: ["VIEW_SITE", "EDIT_CONTENT"],
 };
 
