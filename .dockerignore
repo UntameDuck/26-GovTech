@@ -1,0 +1,23 @@
+# 이미지에 넣을 필요가 없는 것들.
+# 빌드 컨텍스트가 작을수록 빌드가 빠르고, 실수로 비밀이 들어갈 여지도 준다.
+
+node_modules
+.next
+.git
+.github
+.claude
+
+# 비밀. 절대 이미지에 들어가면 안 된다.
+# 운영 값은 K-PaaS Secret 으로 주입한다.
+.env
+.env.*
+!.env.example
+
+# 로컬 개발 전용
+docker-compose.yml
+*.log
+coverage
+
+# 문서
+docs
+README.md

@@ -1,0 +1,104 @@
+name: 컨테이너 이미지
+
+# 이미지를 여기서 만들고 서버는 pull 만 한다.
+# 목표 배포 환경인 OCI A1 무료 티어는 2 OCPU / 12GB 라
+# 거기서 빌드까지 돌리면 애플리케이션이 쓸 자원이 남지 않는다.
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: 멀티아치 빌드 및 GHCR 게시
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # GHCR 에 밀어 넣기 위해 필요하다.
+      packages: write
+      # 빌드 출처 증명(attestation)에 필요하다.
+      id-token: write
+      attestations: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # arm64 이미지를 amd64 러너에서 만들기 위한 에뮬레이션.
+      - name: QEMU 설정
+        uses: docker/setup-qemu-action@v3
+
+      - name: Buildx 설정
+        uses: docker/setup-buildx-action@v3
+
+      - name: GHCR 로그인
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 태그와 라벨 결정
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: 빌드 및 푸시
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # 개발 PC(amd64)와 OCI A1(arm64)이 같은 태그를 쓸 수 있게 한다.
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # 다음 빌드가 이전 레이어를 재사용하도록 한다.
+          # arm64 는 에뮬레이션이라 캐시가 없으면 매우 느리다.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # 이미지에 SBOM 과 provenance 를 붙인다.
+          # 아키텍처 문서 03 의 공급망(L1) 요구사항에 해당한다.
+          sbom: true
+          provenance: mode=max
+
+      # 이 이미지가 이 저장소의 이 커밋에서 나왔다는 서명된 증명을 남긴다.
+      - name: 빌드 출처 증명
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      # 취약점 스캔. 문서 03 의 L1(Supply Chain) 통제다.
+      # 결과를 GitHub Security 탭으로 올려 이력을 남긴다.
+      - name: Trivy 이미지 스캔
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          # 스캔 실패로 게시를 되돌릴 수는 없으므로 여기서 빌드를 깨지 않는다.
+          # 대신 결과를 반드시 남겨 SLA(문서 03)에 따라 처리한다.
+          exit-code: "0"
+
+      - name: 스캔 결과 업로드
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif

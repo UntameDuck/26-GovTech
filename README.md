@@ -21,8 +21,12 @@ MVP 1~5단계 일부에 해당합니다. 노션 문서 05 의 단계 구분을 �
 | 인증 / RBAC | Auth.js v5 + 역할별 권한 (MFA는 P1로 보류) |
 | 승인 흐름 | 편집자 승인 요청 → 승인자 공개 |
 | 보안 헤더 | CSP(nonce) + HSTS + Referrer/Permissions Policy |
-| 게시판 콘텐츠 편집 화면 | **미구현** |
+| 게시판 콘텐츠 편집 화면 | 목록 · 작성 · 수정 · 공개/중지 · 삭제 |
+| 컨테이너 이미지 | 멀티스테이지 Dockerfile (non-root, standalone) |
+| CI / 이미지 게시 | GitHub Actions → GHCR (amd64 + arm64, SBOM, Trivy) |
 | 파일 업로드 | **미구현** |
+| Migration Studio | **미구현** |
+| K-PaaS 배포 | **미구현** |
 
 ## 개발 환경 준비
 
@@ -66,6 +70,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 | `npm run db:up` / `db:down` | 로컬 PostgreSQL 기동 / 정지 |
 | `npm run db:push` | 스키마를 DB에 반영 (마이그레이션 파일 없이) |
 | `npm run db:studio` | Prisma Studio |
+| `npm run db:seed` | 예시 데이터와 개발용 계정 생성 |
 
 ## 구조에서 꼭 지켜야 하는 것
 
@@ -124,6 +129,31 @@ cp node_modules/krds-uiux/resources/fonts/*.woff2 public/fonts/
 
 > **확인 필요**: `krds-uiux` 의 `package.json` 은 라이선스를 `ISC` 로 적고 있으나
 > README 는 "KRDS 이용약관을 따름"이라고 명시합니다. 외부 배포 전에 정리해야 합니다.
+
+## 컨테이너
+
+운영 이미지는 GitHub Actions 에서만 만듭니다. 서버는 pull 만 합니다.
+OCI A1 무료 티어(2 OCPU / 12GB)에서 빌드까지 돌리면 애플리케이션이 쓸 자원이
+남지 않기 때문입니다.
+
+로컬에서 이미지를 확인할 때는:
+
+```bash
+docker build -t aureum:local .
+```
+
+```bash
+docker run --rm -p 3000:3000 -e DATABASE_URL="postgresql://..." -e AUTH_SECRET="..." aureum:local
+```
+
+- 실행 사용자는 root 가 아닙니다 (uid 1001).
+- 비밀은 이미지에 굽지 않습니다. 빌드 단계에서 쓰는 `DATABASE_URL` 은 형식만
+  맞는 가짜 값이며 실행 이미지에 남지 않습니다. 운영 값은 K-PaaS Secret 으로
+  주입합니다.
+- 기본 브랜치에 push 하면 amd64 / arm64 이미지가 GHCR 에 올라갑니다.
+  같은 태그로 개발 PC(amd64)와 OCI A1(arm64)이 모두 받을 수 있습니다.
+- 이미지에는 SBOM 과 build provenance 가 붙고, Trivy 스캔 결과가 GitHub
+  Security 탭에 쌓입니다.
 
 ## 배포 방향
 
